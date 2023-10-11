@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Usage sitecipher exmaple.com 443
+
+[[ -z $@ ]] && {
+printf "sitecipher
+\e[1;33mUsage:\e[0m
+    \e[1;32m$0\e[0m FQDN
+    \e[1;32m$0\e[0m FQDN PORT
+
+\e[1;33mExample:\e[0m
+    \e[1;32m$0\e[0m example.com
+    \e[1;32m$0\e[0m example.com 443
+"
+}
+FQDN=$(echo $1 | sed 's/https\?:\/\///;s/www\.//;s/\/.*//')
+PORT=$2
+[[ -z $FQDN ]] && {
+    printf "\e[1;33mUsage:\e[0m\n    `basename $0` FQDN PORT\n"
+    exit 2; }
+TARGET="www.$FQDN:${PORT:-443}"
+printf "Obtaining cipher list from $(openssl version).\n"
+CIPHERS=$(openssl ciphers 'ALL:eNULL' | sed -e 's/:/\n/g')
+WC=$(echo $CIPHERS | wc -w )
+printf "Connecting to $TARGET\n"
+PROT=$(echo -n | openssl s_client -connect $TARGET 2>/dev/null | grep -m 1 -oP "TLSv[0-9]+\.[0-9]+")
+printf "Protocol: $PROT\nTesting $WC ciphers on $FQDN port:${PORT:-443}\n"
+[[ $PROT == TLSv1.3 ]] && MODE="-ciphersuites" || MODE="-cipher"
+for CIPHER in ${CIPHERS[@]}; do
+    ((WC = WC - 1))
+    TEST=$(echo -n |timeout 5s openssl s_client $MODE "$CIPHER" -connect $TARGET 2>&1)
+    [[ "$TEST" =~ "Cipher is ${CIPHER}" ]] && { printf "\r"; tput el; printf "$CIPHER Found!\n";}
+done & PID=$!; I=1; sp="/-\|"; trap "kill $PID 2>/dev/null" EXIT
+while [ -d /proc/$PID ]; do printf "\r${sp:I++%${#sp}:1}"; sleep 0.2; done; { printf "\r"; tput el; printf "Done!\n";}
